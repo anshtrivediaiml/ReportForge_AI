@@ -1,0 +1,115 @@
+# ============================================================
+# OS / Editor
+# ============================================================
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ============================================================
+# Secrets & Environment Variables  — NEVER COMMIT THESE
+# ============================================================
+.env
+.env.*
+!.env.example
+api/.env
+api/.env.*
+!api/.env.example
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ============================================================
+# Virtual Environments
+# ============================================================
+venv/
+.venv/
+env/
+.python-version
+
+# ============================================================
+# Node / Frontend
+# ============================================================
+web/node_modules/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+web/dist/
+web/.next/
+web/build/
+web/.cache/
+
+# ============================================================
+# Databases (local SQLite / binary DBs)
+# ============================================================
+*.db
+*.sqlite
+*.sqlite3
+reportforge.db
+api/reportforge.db
+
+# ============================================================
+# Runtime / Generated Artifacts
+# ============================================================
+logs/
+uploads/
+outputs/
+api/outputs/
+temp_extract/
+api/temp_extract/
+api/uploads/
+api/logs/
+
+# ============================================================
+# User-Provided Inputs (can be large / proprietary)
+# ============================================================
+inputs/
+api/inputs/
+
+# ============================================================
+# Test & Intermediate Artifacts
+# ============================================================
+tests/outputs/
+api/tests/outputs/
+.coverage
+coverage/
+htmlcov/
+
+# ============================================================
+# Binary / Generated Document Outputs
+# ============================================================
+*.docx
+*.pdf
+*.zip
+*.xlsx
+
+# ============================================================
+# Alembic — keep migrations but ignore compiled bytecode
+# ============================================================
+api/alembic/__pycache__/
+
+# ============================================================
+# Miscellaneous
+# ============================================================
+*.log
+*.tmp
+*.bak
+*.orig
+.rgignore

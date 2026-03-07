@@ -1,0 +1,22 @@
+# Core dependencies
+pdfplumber==0.10.3
+python-docx==1.1.0
+requests==2.31.0
+loguru==0.7.2
+
+# Code analysis
+astor==0.8.1
+
+# Utilities
+python-dotenv==1.0.0
+tqdm==4.66.1
+
+# LLM API clients (for faster generation)
+google-generativeai==0.3.2  # For Gemini API
+
+# Diagram generation (optional - will use online services if not available)
+# graphviz==0.20.1  # Optional: For diagram generation fallback (requires system graphviz)
+# matplotlib>=3.7.0  # Optional: For diagram generation fallback (may require numpy with pre-built wheels)
+
+# Type checking (optional but recommended)
+mypy==1.7.1
