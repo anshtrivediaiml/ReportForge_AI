@@ -333,9 +333,14 @@ async def login(
             summary="Get Current User",
             description="Get information about the currently authenticated user")
 async def get_current_user_info(
-    current_user: Annotated[User, Depends(get_current_active_user)]
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Session = Depends(get_db)
 ):
     """Get current authenticated user information"""
+    from app.services.job_service import sync_user_storage_usage
+
+    storage_used = sync_user_storage_usage(db, current_user.id)
+
     return UserResponse(
         id=current_user.id,
         email=current_user.email,
@@ -344,7 +349,7 @@ async def get_current_user_info(
         profile_picture=current_user.profile_picture,
         auth_provider=current_user.auth_provider.value,
         is_verified=current_user.is_verified,
-        storage_used=current_user.storage_used,
+        storage_used=storage_used,
         reports_generated=current_user.reports_generated,
         created_at=current_user.created_at
     )
@@ -537,6 +542,8 @@ async def update_profile(
     db: Session = Depends(get_db)
 ):
     """Update user profile"""
+    from app.services.job_service import sync_user_storage_usage
+
     if profile_data.full_name is not None:
         current_user.full_name = profile_data.full_name
     
@@ -555,6 +562,7 @@ async def update_profile(
     
     db.commit()
     db.refresh(current_user)
+    storage_used = sync_user_storage_usage(db, current_user.id)
     
     return UserResponse(
         id=current_user.id,
@@ -564,7 +572,7 @@ async def update_profile(
         profile_picture=current_user.profile_picture,
         auth_provider=current_user.auth_provider.value,
         is_verified=current_user.is_verified,
-        storage_used=current_user.storage_used,
+        storage_used=storage_used,
         reports_generated=current_user.reports_generated,
         created_at=current_user.created_at
     )
@@ -722,7 +730,7 @@ async def delete_account(
 ):
     """Delete user account and all associated data"""
     from pathlib import Path
-    from app.services.storage_service import storage_service
+    from app.services.job_service import cleanup_job_artifacts
     from app.models import Job
     import shutil
     
@@ -732,22 +740,7 @@ async def delete_account(
         # 1. Delete all user's jobs (cascade will handle this, but we also need to delete files)
         user_jobs = db.query(Job).filter(Job.user_id == user_id).all()
         for job in user_jobs:
-            # Delete associated files
-            if job.guidelines_path:
-                try:
-                    Path(job.guidelines_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-            if job.project_path:
-                try:
-                    Path(job.project_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
-            if job.output_path:
-                try:
-                    Path(job.output_path).unlink(missing_ok=True)
-                except Exception:
-                    pass
+            cleanup_job_artifacts(job)
         
         # 2. Delete user's upload directory and all files
         user_upload_dir = Path(settings.UPLOAD_DIR) / f"user_{user_id}"
@@ -757,15 +750,7 @@ async def delete_account(
             except Exception as e:
                 print(f"Warning: Could not delete user upload directory: {e}")
         
-        # 3. Delete user's output directory
-        user_output_dir = Path(settings.OUTPUT_DIR) / f"user_{user_id}"
-        if user_output_dir.exists():
-            try:
-                shutil.rmtree(user_output_dir)
-            except Exception as e:
-                print(f"Warning: Could not delete user output directory: {e}")
-        
-        # 4. Delete user from database (cascade will delete jobs)
+        # 3. Delete user from database (cascade will delete jobs)
         db.delete(current_user)
         db.commit()
         

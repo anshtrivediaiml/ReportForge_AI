@@ -15,10 +15,10 @@ It covers:
 The repository is functionally ambitious but not yet production-ready.
 
 Current known state:
-- frontend build is failing
-- frontend/backend response contracts are inconsistent in multiple places
-- WebSocket progress handling has deployment and duplication issues
-- job deletion does not fully clean files and storage
+- frontend build is stable again
+- frontend/backend response contracts have been aligned for the initial high-risk routes
+- processing/WebSocket flow is stabilized for current local and deployment-aware usage
+- job deletion and storage accounting are now centralized around backend cleanup helpers
 - repository contains generated artifacts, temp extracts, and noisy checked-in runtime output
 - backend startup still uses `Base.metadata.create_all()`
 - the report pipeline is advanced but still vulnerable to unsupported-input and isolation edge cases
@@ -68,6 +68,8 @@ Completion notes:
 
 Get the frontend back to a clean build and remove obvious compile-time issues.
 
+Status: Completed on 2026-03-08
+
 ### Tasks
 
 - Fix TypeScript build errors in `web/`
@@ -83,11 +85,23 @@ Get the frontend back to a clean build and remove obvious compile-time issues.
 - no TypeScript errors remain in the frontend
 - strict mode is preserved
 
+Completion notes:
+- added Vite env typing support
+- added a local type declaration for `canvas-confetti`
+- removed unused imports and unused state blocking strict mode
+- fixed strict null handling in dashboard analytics rendering
+- fixed frontend service typing issues needed for compilation
+- validated `npx tsc --noEmit`
+- validated `npm run build`
+- bundle-size and chunking warnings remain as optimization follow-up items, not Phase 1 blockers
+
 ## Phase 2 - Frontend/Backend Contract Alignment
 
 ### Objective
 
 Remove response-shape drift between API routes and frontend consumers.
+
+Status: Completed on 2026-03-08
 
 ### Tasks
 
@@ -104,11 +118,24 @@ Remove response-shape drift between API routes and frontend consumers.
 - share, job, analytics, auth, and download flows all use stable DTOs
 - pages no longer depend on guessed response shapes
 
+Completion notes:
+- added a shared frontend API unwrapping utility for wrapped vs direct payload handling
+- aligned auth, job, analytics, upload, and profile service parsing around explicit DTOs
+- fixed the frontend register flow to accept the backend's direct `AuthResponse`
+- fixed backend sharing response models to include `requires_password` and `description`
+- updated processing and success pages to use normalized job responses directly
+- removed stale frontend checks for a non-existent job status of `error`
+- validated backend import sanity
+- validated `npx tsc --noEmit`
+- validated `npm run build`
+
 ## Phase 3 - Processing and Real-Time UX Fixes
 
 ### Objective
 
 Make live job tracking reliable in both local and deployed environments.
+
+Status: Completed on 2026-03-08
 
 ### Tasks
 
@@ -126,11 +153,26 @@ Make live job tracking reliable in both local and deployed environments.
 - reconnect behavior is predictable
 - time displays are correct across environments
 
+Completion notes:
+- backend generation route now derives `ws_url` from the incoming request and forwarded headers instead of localhost-only defaults
+- upload flow now preserves the backend-provided `ws_url` when navigating into processing
+- processing page now resolves WebSocket URLs from navigation state, session storage, or API-base fallback
+- removed duplicate progress/log application by dropping the overlapping generic message handler
+- separated server error events from transport-level connection errors in the frontend WebSocket client
+- intentional disconnects no longer trigger reconnect attempts
+- reconnect attempts now emit explicit reconnecting/connection-error events
+- log timestamps and shared date formatting now use the viewer's local locale instead of hardcoded `Asia/Kolkata`
+- validated backend import sanity
+- validated `npx tsc --noEmit`
+- validated `npm run build`
+
 ## Phase 4 - File Lifecycle and Storage Integrity
 
 ### Objective
 
 Ensure uploads, outputs, and storage accounting remain correct over time.
+
+Status: Completed on 2026-03-08
 
 ### Tasks
 
@@ -145,6 +187,18 @@ Ensure uploads, outputs, and storage accounting remain correct over time.
 - deleting a job removes its related files
 - storage usage remains consistent
 - temp/output growth is controlled
+
+Completion notes:
+- centralized job artifact discovery and cleanup in the backend service layer
+- job deletion now removes job input copies, intermediate JSON artifacts, extracted temp directories, and final output directories before deleting the DB row
+- user storage is now recalculated from actual filesystem state instead of relying on stale manual counters
+- upload, assemble, generation, user stats, and current-user/profile responses now sync storage from the filesystem source of truth
+- generation now removes original upload folders after job creation so job copies become the canonical inputs and duplicate input storage is reduced
+- Celery task completion and failure paths now resync storage after runtime artifacts are created
+- added explicit stale-runtime cleanup support for temp extraction and intermediate artifacts
+- expanded the developer cleanup script to cover `inputs/` and structured output directories
+- validated backend import sanity
+- validated targeted Python compilation for the changed backend modules
 
 ## Phase 5 - Pipeline Hardening
 
@@ -167,6 +221,14 @@ Make report generation more reliable across supported project types and reduce h
 - pipeline handles expected project categories consistently
 - unsupported cases fail clearly instead of silently degrading
 - per-job isolation is preserved end to end
+
+Completion notes:
+- added deterministic support-tier classification in `utils/facts_builder.py` so sparse or weakly supported projects are labeled before any LLM stage runs
+- planner and writer agents now support deterministic reduced-scope outline/content generation for reduced or unsupported inputs
+- Celery pipeline orchestration now branches explicitly into reduced-scope planner/writer execution instead of always forcing the full LLM path
+- added focused regression coverage for support classification and reduced-scope planner/writer behavior in `tests/test_pipeline_hardening.py`
+- validated targeted Python compilation, deterministic pipeline tests, and backend import sanity with explicit writable runtime paths
+- default backend startup still relies on runtime directory/database writes, which reinforces the need for Phase 6 backend production hardening
 
 ## Phase 6 - Backend Production Hardening
 
@@ -249,10 +311,10 @@ Recommended execution order:
 
 If execution starts now, the best first block is:
 
-1. fix frontend build
-2. align API contracts
-3. repair processing/WebSocket flow
-4. fix file lifecycle and storage cleanup
+1. pipeline hardening follow-up
+2. backend production hardening preparation
+3. automated validation expansion
+4. product polish follow-up
 
 ## Notes
 

@@ -1,4 +1,4 @@
-import React, { Component, ErrorInfo, ReactNode } from 'react'
+import { Component, ErrorInfo, ReactNode } from 'react'
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react'
 import Button from './Button'
 import Card from './Card'
@@ -88,7 +88,7 @@ class ErrorBoundary extends Component<Props, State> {
                 We're sorry, but something unexpected happened. Our team has been notified.
               </p>
 
-              {process.env.NODE_ENV === 'development' && this.state.error && (
+              {import.meta.env.DEV && this.state.error && (
                 <div className="mb-6 p-4 bg-slate-800 rounded-lg text-left">
                   <p className="text-red-400 font-mono text-sm mb-2">
                     {this.state.error.toString()}

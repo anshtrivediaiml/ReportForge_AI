@@ -5,26 +5,23 @@ import { motion } from 'framer-motion'
 import confetti from 'canvas-confetti'
 import Button from '@/components/common/Button'
 import Card from '@/components/common/Card'
-import { downloadReport, getJob } from '@/services/api'
+import { downloadReport, getJob, type JobResponse } from '@/services/api'
 import { formatBytes, formatDate } from '@/utils/formatters'
 import toast from 'react-hot-toast'
 
 export default function SuccessPage() {
   const { jobId } = useParams<{ jobId: string }>()
   const navigate = useNavigate()
-  const [job, setJob] = useState<any>(null)
+  const [job, setJob] = useState<JobResponse | null>(null)
   const [downloading, setDownloading] = useState(false)
 
   useEffect(() => {
     // Fetch job details first before showing success
     if (jobId) {
       getJob(jobId)
-        .then((response) => {
-          // Handle both direct data and wrapped response
-          const jobData = response.data || response
-          
+        .then((jobData) => {
           // CRITICAL: Validate job actually completed successfully
-          if (jobData.status === 'failed' || jobData.status === 'error') {
+          if (jobData.status === 'failed') {
             toast.error('Report generation failed. Please try again.')
             navigate('/upload')
             return

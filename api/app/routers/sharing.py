@@ -108,7 +108,9 @@ async def create_share_link(
         expires_at=shared_report.expires_at,
         created_at=shared_report.created_at,
         access_count=shared_report.access_count,
-        is_active=shared_report.is_active
+        is_active=shared_report.is_active,
+        requires_password=shared_report.requires_password,
+        description=shared_report.description
     )
 
 
@@ -135,7 +137,9 @@ async def list_shared_reports(
             expires_at=share.expires_at,
             created_at=share.created_at,
             access_count=share.access_count,
-            is_active=share.is_active
+            is_active=share.is_active,
+            requires_password=share.requires_password,
+            description=share.description
         ))
     
     return SharedReportListResponse(

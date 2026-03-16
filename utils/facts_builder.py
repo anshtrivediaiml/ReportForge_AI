@@ -419,6 +419,20 @@ def build_project_facts(project_analysis: Dict[str, Any]) -> Dict[str, Any]:
         "total_directories": len(directory_names)
     }
     
+    report_support = _determine_report_support(
+        file_type_counts=file_type_counts,
+        frontend_only=frontend_only,
+        backend_present=backend_present,
+        fullstack=fullstack,
+        entry_points=entry_points,
+        entry_point_confidence=entry_point_confidence,
+        capabilities=capabilities,
+        technologies=detected_technologies,
+        modules_count=len(modules_list),
+        code_files=len(code_files),
+        total_files=len(files)
+    )
+
     # Build facts dictionary with enhanced content
     facts = {
         "project_name": project_analysis.get("name", "Unknown"),
@@ -444,9 +458,87 @@ def build_project_facts(project_analysis: Dict[str, Any]) -> Dict[str, Any]:
         # New: Use cases and project purpose from README
         "use_cases": use_cases,
         "project_purpose": project_purpose,
-        "readme_files": list(readme_content.keys())
+        "readme_files": list(readme_content.keys()),
+        "supported_project_category": report_support["category"],
+        "report_support_tier": report_support["tier"],
+        "report_support_reasons": report_support["reasons"],
+        "reduced_scope_recommended": report_support["reduced_scope_recommended"],
     }
     
     logger.success(f"Built project facts: {len(files)} files, {len(capabilities)} capabilities, {len(modules_list)} modules, {len(code_content)} code files extracted")
     return facts
 
+
+def _determine_report_support(
+    *,
+    file_type_counts: Dict[str, int],
+    frontend_only: bool,
+    backend_present: bool,
+    fullstack: bool,
+    entry_points: List[str],
+    entry_point_confidence: str,
+    capabilities: List[str],
+    technologies: List[str],
+    modules_count: int,
+    code_files: int,
+    total_files: int,
+) -> Dict[str, Any]:
+    """Classify report support level and recommend reduced-scope mode when needed."""
+    reasons: List[str] = []
+
+    if fullstack:
+        category = "Full-Stack Web Application"
+    elif frontend_only:
+        category = "Frontend Web Application"
+    elif backend_present:
+        category = "Backend Service"
+    elif file_type_counts.get(".ipynb", 0) > 0:
+        category = "Data Science Project"
+    elif any(path.lower().endswith(("main.py", "__main__.py")) for path in entry_points):
+        category = "CLI Tool"
+    elif any(ext in file_type_counts for ext in [".py", ".js", ".ts", ".java", ".go", ".rs"]):
+        category = "Library/Package"
+    else:
+        category = "Other"
+
+    if code_files == 0:
+        reasons.append("No source code files were detected in the uploaded project.")
+        tier = "unsupported"
+    else:
+        tier = "full"
+
+        if code_files < 3:
+            reasons.append("The codebase is very small, so only a reduced-scope report is safe.")
+            tier = "reduced"
+
+        if modules_count == 0:
+            reasons.append("No stable module structure was detected from the project layout.")
+            tier = "reduced"
+
+        if not capabilities:
+            reasons.append("Deterministic analysis found limited observable capabilities in the code.")
+            tier = "reduced"
+
+        if entry_point_confidence == "low":
+            reasons.append("Entry points could not be identified with high confidence.")
+            tier = "reduced"
+
+        if total_files > 12000:
+            reasons.append("The project is very large, so the report should stay conservative and reduced in scope.")
+            tier = "reduced"
+
+    if category == "Other" and tier == "full":
+        reasons.append("The project does not match a strong supported category, so reduced-scope reporting is safer.")
+        tier = "reduced"
+
+    if not technologies:
+        reasons.append("No primary technologies were identified from deterministic analysis.")
+        if tier == "full":
+            tier = "reduced"
+
+    return {
+        "category": category,
+        "tier": tier,
+        "reasons": reasons,
+        "reduced_scope_recommended": tier in {"reduced", "unsupported"},
+    }

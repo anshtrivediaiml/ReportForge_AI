@@ -1,8 +1,10 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios'
 import { useAuthStore } from '@/store/authStore'
+import { unwrapApiData } from '@/utils/api'
+import { getApiBaseUrl } from '@/utils/network'
 import toast from 'react-hot-toast'
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const API_BASE_URL = getApiBaseUrl()
 
 // Create axios instance
 export const api = axios.create({
@@ -54,9 +56,10 @@ api.interceptors.response.use(
   },
   async (error: AxiosError) => {
     const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
+    const status = error.response?.status
     
     // Handle 401 Unauthorized - Token expired or invalid
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (status === 401 && !originalRequest._retry) {
       originalRequest._retry = true
       
       const { refreshToken, logout } = useAuthStore.getState()
@@ -77,8 +80,7 @@ api.interceptors.response.use(
           { withCredentials: true }
         )
         
-        // Handle both wrapped and direct responses
-        const data = response.data.data || response.data
+        const data = unwrapApiData(response.data)
         const { access_token } = data
         
         // Update token in store
@@ -100,11 +102,11 @@ api.interceptors.response.use(
     }
     
     // Handle other errors
-    if (error.response?.status === 403) {
+    if (status === 403) {
       toast.error('Access denied. You don\'t have permission to perform this action.')
-    } else if (error.response?.status === 404) {
+    } else if (status === 404) {
       // Don't show toast for 404s - let components handle it
-    } else if (error.response?.status >= 500) {
+    } else if (status !== undefined && status >= 500) {
       toast.error('Server error. Please try again later.')
     }
     

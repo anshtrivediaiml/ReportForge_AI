@@ -1,12 +1,11 @@
 """
 Upload Router - File upload with chunking support and user authentication
 """
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query, status
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from typing import Optional, Annotated
-from app.services.storage_service import storage_service
 from app.schemas.upload import UploadResponse, StartGenerationRequest, StartGenerationResponse
-from app.services.job_service import create_job
+from app.services.job_service import create_job, calculate_user_storage_usage, sync_user_storage_usage
 from app.schemas.job import JobCreate
 from app.database import get_db
 from app.models import JobStatus, User
@@ -14,8 +13,6 @@ from app.dependencies.auth import get_current_active_user
 from sqlalchemy.orm import Session
 from uuid import UUID
 from pathlib import Path
-import zipfile
-import os
 import shutil
 from app.config import settings
 from app.tasks.report_tasks import generate_report_task
@@ -99,7 +96,7 @@ async def upload_file(
             )
         
         # Check user storage limit
-        current_storage = storage_service.get_user_storage_size(user_id)
+        current_storage = calculate_user_storage_usage(db, user_id)
         if current_storage + len(content) > settings.DEFAULT_STORAGE_LIMIT:
             available_gb = (settings.DEFAULT_STORAGE_LIMIT - current_storage) / (1024 ** 3)
             raise HTTPException(
@@ -125,7 +122,7 @@ async def upload_file(
         print(f"📁 Saved to: inputs/user_{user_id}/{file_id}/{filename}")
         
         # Update user storage
-        current_user.storage_used = current_storage + len(content)
+        current_user.storage_used = sync_user_storage_usage(db, user_id, commit=False)
         db.commit()
         
         response_data = UploadResponse(
@@ -214,8 +211,7 @@ async def assemble_chunks(
     print(f"📁 Assembled to: inputs/user_{user_id}/{file_id}/{filename}")
     
     # Update user storage
-    current_storage = storage_service.get_user_storage_size(user_id)
-    current_user.storage_used = current_storage
+    current_user.storage_used = sync_user_storage_usage(db, user_id, commit=False)
     db.commit()
     
     response_data = UploadResponse(
@@ -235,6 +231,7 @@ async def assemble_chunks(
 @router.post("/generate")
 async def start_generation(
     request: StartGenerationRequest,
+    http_request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -285,8 +282,8 @@ async def start_generation(
         )
     
     # Check storage limits
-    current_storage = storage_service.get_user_storage_size(user_id)
-    if current_storage + total_size > settings.DEFAULT_STORAGE_LIMIT:
+    current_storage = calculate_user_storage_usage(db, user_id)
+    if current_storage > settings.DEFAULT_STORAGE_LIMIT:
         available_gb = (settings.DEFAULT_STORAGE_LIMIT - current_storage) / (1024 ** 3)
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
@@ -324,9 +321,15 @@ async def start_generation(
         original_filename=combined_filename,
         file_size=total_size
     )
+
+    # Remove the original upload folders after the job record exists.
+    # The job-specific copies become the canonical inputs for processing.
+    for source_dir in [guidelines_file_dir, project_file_dir]:
+        if source_dir != job_dir and source_dir.exists():
+            shutil.rmtree(source_dir, ignore_errors=True)
     
     # Update user statistics
-    current_user.storage_used = current_storage + total_size
+    current_user.storage_used = sync_user_storage_usage(db, user_id, commit=False)
     current_user.reports_generated += 1
     db.commit()
     
@@ -347,9 +350,11 @@ async def start_generation(
         countdown=0  # Execute immediately, but only when explicitly called
     )
     
-    # Construct WebSocket URL (use environment or default)
-    ws_host = os.getenv('WS_HOST', 'localhost:8000')
-    ws_protocol = 'wss' if os.getenv('USE_HTTPS') == 'true' else 'ws'
+    # Construct a deployment-safe WebSocket URL from the incoming request.
+    forwarded_proto = http_request.headers.get('x-forwarded-proto', http_request.url.scheme)
+    forwarded_host = http_request.headers.get('x-forwarded-host') or http_request.headers.get('host') or http_request.url.netloc
+    ws_protocol = 'wss' if forwarded_proto == 'https' else 'ws'
+    ws_host = forwarded_host or 'localhost:8000'
     ws_url = f"{ws_protocol}://{ws_host}/ws/{job.id}"
     
     response_data = StartGenerationResponse(

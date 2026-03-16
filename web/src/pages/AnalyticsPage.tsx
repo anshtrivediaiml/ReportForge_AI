@@ -3,7 +3,7 @@ import { BarChart3, Clock, HardDrive, FileText, TrendingUp, Users, Activity } fr
 import Card from '@/components/common/Card'
 import Button from '@/components/common/Button'
 import { getMyMetrics, getSystemMetrics, type UserMetrics, type SystemMetrics } from '@/services/api'
-import { formatBytes, formatDate } from '@/utils/formatters'
+import { formatBytes, formatShortDate } from '@/utils/formatters'
 import toast from 'react-hot-toast'
 import Skeleton from '@/components/common/Skeleton'
 
@@ -209,11 +209,7 @@ export default function AnalyticsPage() {
                         <div className="flex-1">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-sm text-text-secondary">
-                              {new Date(day.date).toLocaleDateString('en-IN', { 
-                                timeZone: 'Asia/Kolkata',
-                                month: 'short', 
-                                day: 'numeric' 
-                              })}
+                              {formatShortDate(day.date)}
                             </span>
                             <span className="text-sm font-semibold">{day.count}</span>
                           </div>

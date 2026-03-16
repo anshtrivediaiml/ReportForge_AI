@@ -46,7 +46,7 @@ export default function DashboardPage() {
       ])
       
       setStats(statsData)
-      setRecentJobs(jobsData.data?.jobs || jobsData.jobs || [])
+      setRecentJobs(jobsData.jobs || [])
     } catch (error: any) {
       console.error('Error fetching dashboard data:', error)
       toast.error('Failed to load dashboard data')
@@ -146,6 +146,9 @@ export default function DashboardPage() {
       </div>
     )
   }
+
+  const maxProcessingTime = analytics?.max_processing_time_seconds ?? null
+  const minProcessingTime = analytics?.min_processing_time_seconds ?? null
 
   return (
     <div className="container mx-auto px-6 py-12 max-w-7xl">
@@ -577,12 +580,12 @@ export default function DashboardPage() {
                             />
                           </div>
                         </div>
-                        {analytics.max_processing_time_seconds !== undefined && analytics.max_processing_time_seconds > 0 && (
+                        {maxProcessingTime !== null && maxProcessingTime > 0 && (
                           <div>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-sm text-text-secondary">Longest</span>
                               <span className="font-semibold text-text-primary">
-                                {formatTime(analytics.max_processing_time_seconds)}
+                                {formatTime(maxProcessingTime)}
                               </span>
                             </div>
                             <div className="w-full bg-slate-700 rounded-full h-2">
@@ -593,12 +596,12 @@ export default function DashboardPage() {
                             </div>
                           </div>
                         )}
-                        {analytics.min_processing_time_seconds !== undefined && analytics.min_processing_time_seconds > 0 && (
+                        {minProcessingTime !== null && minProcessingTime > 0 && (
                           <div>
                             <div className="flex items-center justify-between mb-2">
                               <span className="text-sm text-text-secondary">Fastest</span>
                               <span className="font-semibold text-text-primary">
-                                {formatTime(analytics.min_processing_time_seconds)}
+                                {formatTime(minProcessingTime)}
                               </span>
                             </div>
                             <div className="w-full bg-slate-700 rounded-full h-2">

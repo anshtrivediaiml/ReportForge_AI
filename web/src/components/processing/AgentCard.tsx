@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { CheckCircle, Clock } from 'lucide-react'
+import { CheckCircle } from 'lucide-react'
 import { cn } from '@/utils/helpers'
 import { StageStatus } from '@/types'
 import Card from '@/components/common/Card'

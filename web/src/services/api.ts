@@ -1,8 +1,7 @@
 // Use the authenticated axios instance from lib/axios
 // This ensures all API calls include JWT tokens and handle auth errors
 import api from '@/lib/axios'
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+import { ApiEnvelope, unwrapApiData } from '@/utils/api'
 
 export interface UploadFileResponse {
   file_id: string
@@ -23,11 +22,42 @@ export interface StartGenerationResponse {
   status: string
 }
 
+export interface JobResponse {
+  id: string
+  title?: string | null
+  user_id?: number | null
+  guidelines_filename: string
+  project_filename: string
+  original_filename?: string | null
+  status: 'queued' | 'processing' | 'completed' | 'failed'
+  current_stage?: 'parser' | 'planner' | 'writer' | 'builder' | 'complete' | null
+  progress: number
+  created_at: string
+  started_at?: string | null
+  completed_at?: string | null
+  files_analyzed: number
+  chapters_created: number
+  sections_written: number
+  total_sections: number
+  pages_generated: number
+  output_path?: string | null
+  output_filename?: string | null
+  error_message?: string | null
+  output_file_size?: number | null
+}
+
+export interface JobListResponse {
+  jobs: JobResponse[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export const uploadFile = async (file: File): Promise<UploadFileResponse> => {
   const formData = new FormData()
   formData.append('file', file)
   
-  const response = await api.post<{ success: boolean; data: UploadFileResponse }>(
+  const response = await api.post<ApiEnvelope<UploadFileResponse>>(
     '/api/v1/upload/file',
     formData,
     {
@@ -37,28 +67,27 @@ export const uploadFile = async (file: File): Promise<UploadFileResponse> => {
     }
   )
   
-  return response.data.data
+  return unwrapApiData(response.data)
 }
 
 export const startGeneration = async (
   request: StartGenerationRequest
 ): Promise<StartGenerationResponse> => {
-  const response = await api.post<{ success: boolean; data: StartGenerationResponse }>(
+  const response = await api.post<ApiEnvelope<StartGenerationResponse>>(
     '/api/v1/upload/generate',
     request
   )
   
-  return response.data.data
+  return unwrapApiData(response.data)
 }
 
-export const getJob = async (jobId: string) => {
-  const response = await api.get(`/api/v1/jobs/${jobId}`)
-  // Handle both wrapped and direct responses
-  return response.data.data || response.data
+export const getJob = async (jobId: string): Promise<JobResponse> => {
+  const response = await api.get<ApiEnvelope<JobResponse> | JobResponse>(`/api/v1/jobs/${jobId}`)
+  return unwrapApiData(response.data)
 }
 
-export const listJobs = async (page = 1, pageSize = 20) => {
-  const response = await api.get('/api/v1/jobs', {
+export const listJobs = async (page = 1, pageSize = 20): Promise<JobListResponse> => {
+  const response = await api.get<JobListResponse>('/api/v1/jobs', {
     params: { page, page_size: pageSize },
   })
   return response.data
@@ -84,11 +113,11 @@ export interface UpdateJobTitleRequest {
 }
 
 export const updateJobTitle = async (jobId: string, title: string): Promise<any> => {
-  const response = await api.patch<{ success: boolean; data: any }>(
+  const response = await api.patch<ApiEnvelope<{ id: string; title: string }>>(
     `/api/v1/jobs/${jobId}`,
     { title }
   )
-  return response.data.data || response.data
+  return unwrapApiData(response.data)
 }
 
 // Delete job
@@ -143,11 +172,11 @@ export interface RefreshTokenResponse {
 
 // Register new user
 export const register = async (data: RegisterRequest): Promise<AuthResponse> => {
-  const response = await api.post<{ success: boolean; data: AuthResponse }>(
+  const response = await api.post<ApiEnvelope<AuthResponse> | AuthResponse>(
     '/api/v1/auth/register',
     data
   )
-  return response.data.data
+  return unwrapApiData(response.data)
 }
 
 // Login user
@@ -156,7 +185,7 @@ export const login = async (data: LoginRequest): Promise<AuthResponse> => {
   formData.append('username', data.email) // OAuth2 uses 'username' field
   formData.append('password', data.password)
   
-  const response = await api.post<AuthResponse | { success: boolean; data: AuthResponse }>(
+  const response = await api.post<AuthResponse | ApiEnvelope<AuthResponse>>(
     '/api/v1/auth/login',
     formData,
     {
@@ -166,14 +195,8 @@ export const login = async (data: LoginRequest): Promise<AuthResponse> => {
     }
   )
   
-  // Handle both wrapped and direct responses
-  const responseData = response.data
-  if ('success' in responseData && responseData.success && 'data' in responseData) {
-    return (responseData as { success: boolean; data: AuthResponse }).data
-  }
+  const authResponse = unwrapApiData(response.data)
   
-  // Direct response (most common case)
-  const authResponse = responseData as AuthResponse
   if (!authResponse.access_token || !authResponse.user) {
     throw new Error('Invalid login response: missing access_token or user')
   }
@@ -183,23 +206,19 @@ export const login = async (data: LoginRequest): Promise<AuthResponse> => {
 
 // Get current user info
 export const getCurrentUser = async (): Promise<AuthResponse['user']> => {
-  const response = await api.get<AuthResponse['user'] | { success: boolean; data: AuthResponse['user'] }>(
+  const response = await api.get<AuthResponse['user'] | ApiEnvelope<AuthResponse['user']>>(
     '/api/v1/auth/me'
   )
-  // Backend returns UserResponse directly, not wrapped
-  if ('success' in response.data && response.data.success) {
-    return (response.data as { success: boolean; data: AuthResponse['user'] }).data
-  }
-  return response.data as AuthResponse['user']
+  return unwrapApiData(response.data)
 }
 
 // Refresh access token
 export const refreshToken = async (refreshToken: string): Promise<RefreshTokenResponse> => {
-  const response = await api.post<{ success: boolean; data: RefreshTokenResponse }>(
+  const response = await api.post<RefreshTokenResponse | ApiEnvelope<RefreshTokenResponse>>(
     '/api/v1/auth/refresh',
     { refresh_token: refreshToken }
   )
-  return response.data.data || response.data
+  return unwrapApiData(response.data)
 }
 
 // Logout user
@@ -225,14 +244,10 @@ export interface UserStats {
 }
 
 export const getUserStats = async (): Promise<UserStats> => {
-  const response = await api.get<UserStats | { success: boolean; data: UserStats }>(
+  const response = await api.get<UserStats | ApiEnvelope<UserStats>>(
     '/api/v1/reports/stats'
   )
-  // Backend returns UserStatsResponse directly, not wrapped
-  if ('success' in response.data && response.data.success) {
-    return (response.data as { success: boolean; data: UserStats }).data
-  }
-  return response.data as UserStats
+  return unwrapApiData(response.data)
 }
 
 // ============================================================================
@@ -259,15 +274,11 @@ export interface PasswordResetConfirm {
 }
 
 export const updateProfile = async (profileData: ProfileUpdate): Promise<AuthResponse['user']> => {
-  const response = await api.patch<AuthResponse['user'] | { success: boolean; data: AuthResponse['user'] }>(
+  const response = await api.patch<AuthResponse['user'] | ApiEnvelope<AuthResponse['user']>>(
     '/api/v1/auth/profile',
     profileData
   )
-  // Backend returns UserResponse directly, not wrapped
-  if ('success' in response.data && response.data.success) {
-    return (response.data as { success: boolean; data: AuthResponse['user'] }).data
-  }
-  return response.data as AuthResponse['user']
+  return unwrapApiData(response.data)
 }
 
 export const changePassword = async (passwordData: PasswordChange): Promise<{ message: string }> => {
@@ -352,17 +363,17 @@ export interface SystemMetrics extends UserMetrics {
 }
 
 export const getMyMetrics = async (days: number = 30): Promise<UserMetrics> => {
-  const response = await api.get<{ success: boolean; data: UserMetrics }>(
+  const response = await api.get<ApiEnvelope<UserMetrics>>(
     `/api/v1/analytics/my-metrics?days=${days}`
   )
-  return response.data.data
+  return unwrapApiData(response.data)
 }
 
 export const getSystemMetrics = async (days: number = 30): Promise<SystemMetrics> => {
-  const response = await api.get<{ success: boolean; data: SystemMetrics }>(
+  const response = await api.get<ApiEnvelope<SystemMetrics>>(
     `/api/v1/analytics/system?days=${days}`
   )
-  return response.data.data
+  return unwrapApiData(response.data)
 }
 
 // ============================================================================
@@ -386,6 +397,7 @@ export interface ShareReportResponse {
   created_at: string
   access_count: number
   is_active: boolean
+  requires_password: boolean
 }
 
 export interface SharedReportInfo {

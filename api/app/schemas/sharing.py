@@ -1,7 +1,7 @@
 """
 Schemas for report sharing
 """
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
@@ -26,6 +26,8 @@ class ShareReportResponse(BaseModel):
     created_at: datetime
     access_count: int
     is_active: bool
+    requires_password: bool
+    description: Optional[str] = None
 
 
 class SharedReportInfo(BaseModel):

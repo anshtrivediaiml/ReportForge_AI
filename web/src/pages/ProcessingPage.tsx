@@ -1,23 +1,53 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { useJobStore } from '@/store/jobStore'
+import { getJob } from '@/services/api'
 import { WebSocketClient } from '@/services/websocket'
 import { ProgressUpdate } from '@/types'
 import { AGENTS } from '@/utils/constants'
 import { formatDuration } from '@/utils/formatters'
+import {
+  buildJobWebSocketUrl,
+  clearRememberedJobWebSocketUrl,
+  getRememberedJobWebSocketUrl,
+  rememberJobWebSocketUrl,
+} from '@/utils/network'
 import AgentCard from '@/components/processing/AgentCard'
 import LiveLogViewer from '@/components/processing/LiveLogViewer'
 import MetricsPanel from '@/components/processing/MetricsPanel'
 import Card from '@/components/common/Card'
 import toast from 'react-hot-toast'
 
+type ProcessingLocationState = {
+  wsUrl?: string
+}
+
 export default function ProcessingPage() {
   const { jobId } = useParams<{ jobId: string }>()
+  const location = useLocation()
   const navigate = useNavigate()
-  const { stages, overallProgress, currentStage, logs, updateProgress, setReportSummary } = useJobStore()
+  const { stages, overallProgress, currentStage, logs, updateProgress } = useJobStore()
   const [elapsedTime, setElapsedTime] = useState(0)
-  const [wsClient, setWsClient] = useState<WebSocketClient | null>(null)
   const [startTime] = useState(Date.now())
+
+  const wsUrlFromNavigation = (location.state as ProcessingLocationState | null)?.wsUrl
+
+  const navigateToUpload = (message?: string) => {
+    if (jobId) {
+      clearRememberedJobWebSocketUrl(jobId)
+    }
+    if (message) {
+      toast.error(message)
+    }
+    navigate('/upload')
+  }
+
+  const navigateToSuccess = () => {
+    if (jobId) {
+      clearRememberedJobWebSocketUrl(jobId)
+      navigate(`/success/${jobId}`)
+    }
+  }
 
   // Scroll to top on mount
   useEffect(() => {
@@ -26,213 +56,181 @@ export default function ProcessingPage() {
 
   useEffect(() => {
     if (!jobId) {
-      toast.error('Invalid job ID')
-      navigate('/upload')
+      navigateToUpload('Invalid job ID')
       return
     }
 
-    // CRITICAL: Check job status immediately on page load to ensure consistency
+    const rememberedWsUrl = getRememberedJobWebSocketUrl(jobId)
+    const resolvedWsUrl = buildJobWebSocketUrl(jobId, wsUrlFromNavigation || rememberedWsUrl)
+
+    if (wsUrlFromNavigation) {
+      rememberJobWebSocketUrl(jobId, wsUrlFromNavigation)
+    }
+
     const checkInitialStatus = async () => {
       try {
-        const { getJob } = await import('@/services/api')
-        const job = await getJob(jobId)
-        const jobData = job.data || job
-        
-        // If job is already failed, navigate immediately
-        if (jobData.status === 'failed' || jobData.status === 'error') {
-          toast.error(jobData.error_message || 'Report generation failed')
-          navigate('/upload')
+        const jobData = await getJob(jobId)
+
+        if (jobData.status === 'failed') {
+          navigateToUpload(jobData.error_message || 'Report generation failed')
           return
         }
-        
-        // If job is already completed, navigate to success
+
         if (jobData.status === 'completed') {
-          if ((jobData.chapters_created || 0) > 0 && 
-              (jobData.sections_written || 0) > 0) {
-            navigate(`/success/${jobId}`)
+          if ((jobData.chapters_created || 0) > 0 && (jobData.sections_written || 0) > 0) {
+            navigateToSuccess()
           } else {
-            toast.error('Report generation failed. No content was generated.')
-            navigate('/upload')
+            navigateToUpload('Report generation failed. No content was generated.')
           }
-          return
         }
       } catch (error) {
         console.error('Failed to check initial job status:', error)
-        // Continue with WebSocket connection even if initial check fails
       }
     }
-    
-    checkInitialStatus()
 
-    // Connect to WebSocket
-    const wsUrl = `ws://localhost:8000/ws/${jobId}`
-    const client = new WebSocketClient(wsUrl)
+    void checkInitialStatus()
+
+    const client = new WebSocketClient(resolvedWsUrl)
 
     client.on('progress', (data: ProgressUpdate) => {
-      console.log('📊 Progress update:', data)
       updateProgress(data)
     })
 
     client.on('log', (data: ProgressUpdate) => {
-      console.log('📝 Log update:', data)
       updateProgress(data)
     })
 
     client.on('error', (data: ProgressUpdate) => {
-      console.error('❌ Error update:', data)
       updateProgress(data)
       toast.error(data.message || 'An error occurred')
-      
-      // CRITICAL: Immediately check backend status to ensure consistency
+
       setTimeout(async () => {
         try {
-          const { getJob } = await import('@/services/api')
-          const job = await getJob(jobId!)
-          const jobData = job.data || job
-          
-          // If backend confirms failure, navigate immediately
-          if (jobData.status === 'failed' || jobData.status === 'error') {
-            toast.error(jobData.error_message || data.message || 'Report generation failed')
-            navigate('/upload')
+          const jobData = await getJob(jobId)
+          if (jobData.status === 'failed') {
+            navigateToUpload(jobData.error_message || data.message || 'Report generation failed')
           }
         } catch (error) {
           console.error('Failed to verify error status:', error)
-          // Still navigate on WebSocket error even if we can't verify
           setTimeout(() => {
-            navigate('/upload')
+            navigateToUpload()
           }, 2000)
         }
-      }, 1000) // Check after 1 second
+      }, 1000)
     })
 
     client.on('connected', () => {
-      console.log('✅ WebSocket connected')
-      // Don't show toast on connection - less intrusive
+      toast.dismiss('processing-ws')
     })
 
-    client.on('message', (data: ProgressUpdate) => {
-      // Handle any message type that wasn't caught above
-      if (data.type && ['progress', 'log', 'error'].includes(data.type)) {
-        updateProgress(data)
-      }
+    client.on('reconnecting', () => {
+      toast.loading('Reconnecting to live updates...', { id: 'processing-ws' })
+    })
+
+    client.on('connection-error', () => {
+      toast.loading('Live updates are unavailable. Falling back to status polling...', {
+        id: 'processing-ws',
+      })
     })
 
     client.connect().catch((error) => {
       console.error('WebSocket connection failed:', error)
-      toast.error('Failed to connect to live updates')
+      toast.loading('Live updates are unavailable. Falling back to status polling...', {
+        id: 'processing-ws',
+      })
     })
 
-    setWsClient(client)
-
-    // Update elapsed time
     const interval = setInterval(() => {
       setElapsedTime((Date.now() - startTime) / 1000)
     }, 1000)
 
     return () => {
+      toast.dismiss('processing-ws')
       client.disconnect()
       clearInterval(interval)
     }
-  }, [jobId, navigate, updateProgress, startTime])
+  }, [jobId, navigate, startTime, updateProgress, wsUrlFromNavigation])
 
-  // Poll job status as fallback to ensure frontend-backend synchronization
   useEffect(() => {
-    if (!jobId) return
+    if (!jobId) {
+      return
+    }
 
     const pollInterval = setInterval(async () => {
       try {
-        const { getJob } = await import('@/services/api')
-        const job = await getJob(jobId)
-        const jobData = job.data || job
-        
-        // CRITICAL: Check job status from backend to stay synchronized
-        if (jobData.status === 'failed' || jobData.status === 'error') {
+        const jobData = await getJob(jobId)
+
+        if (jobData.status === 'failed') {
           clearInterval(pollInterval)
-          toast.error(jobData.error_message || 'Report generation failed')
-          navigate('/upload')
+          navigateToUpload(jobData.error_message || 'Report generation failed')
           return
         }
-        
-        // Check for completion
+
         if (jobData.status === 'completed') {
           clearInterval(pollInterval)
-          // Verify job has actual content
-          if ((jobData.chapters_created || 0) > 0 && 
-              (jobData.sections_written || 0) > 0) {
-            navigate(`/success/${jobId}`)
+          if ((jobData.chapters_created || 0) > 0 && (jobData.sections_written || 0) > 0) {
+            navigateToSuccess()
           } else {
-            toast.error('Report generation failed. No content was generated.')
-            navigate('/upload')
+            navigateToUpload('Report generation failed. No content was generated.')
           }
-          return
         }
       } catch (error) {
         console.error('Failed to poll job status:', error)
-        // Don't clear interval on error - might be temporary network issue
       }
-    }, 5000) // Poll every 5 seconds
+    }, 5000)
 
     return () => clearInterval(pollInterval)
   }, [jobId, navigate])
 
-  // Check if generation is complete or failed (from WebSocket)
   useEffect(() => {
-    // Check for completion
     if (stages.complete.status === 'completed' && stages.complete.progress === 100) {
-      // Verify job actually has content before navigating
       setTimeout(async () => {
+        if (!jobId) {
+          return
+        }
+
         try {
-          const { getJob } = await import('@/services/api')
-          const job = await getJob(jobId!)
-          const jobData = job.data || job
-          
-          // Only navigate if job has actual content
-          if (jobData.status === 'completed' && 
-              (jobData.chapters_created || 0) > 0 && 
-              (jobData.sections_written || 0) > 0) {
-            navigate(`/success/${jobId}`)
+          const jobData = await getJob(jobId)
+
+          if (jobData.status === 'completed' && (jobData.chapters_created || 0) > 0 && (jobData.sections_written || 0) > 0) {
+            navigateToSuccess()
           } else {
-            toast.error('Report generation failed. No content was generated.')
-            navigate('/upload')
+            navigateToUpload('Report generation failed. No content was generated.')
           }
         } catch (error) {
           console.error('Failed to verify job:', error)
-          navigate('/upload')
+          navigateToUpload()
         }
       }, 2000)
     }
-    
-    // Check for error status in any stage
-    const hasError = Object.values(stages).some(stage => stage.status === 'error')
+
+    const hasError = Object.values(stages).some((stage) => stage.status === 'error')
     if (hasError) {
       setTimeout(async () => {
-        // Double-check with backend to ensure consistency
+        if (!jobId) {
+          return
+        }
+
         try {
-          const { getJob } = await import('@/services/api')
-          const job = await getJob(jobId!)
-          const jobData = job.data || job
-          
-          if (jobData.status === 'failed' || jobData.status === 'error') {
-            toast.error(jobData.error_message || 'Report generation encountered an error')
-            navigate('/upload')
+          const jobData = await getJob(jobId)
+
+          if (jobData.status === 'failed') {
+            navigateToUpload(jobData.error_message || 'Report generation encountered an error')
           } else {
-            // WebSocket error but backend says otherwise - log for debugging
             console.warn('WebSocket error but backend status is:', jobData.status)
           }
         } catch (error) {
           console.error('Failed to verify error status:', error)
-          toast.error('Report generation encountered an error')
-          navigate('/upload')
+          navigateToUpload('Report generation encountered an error')
         }
       }, 2000)
     }
-  }, [stages.complete, stages, jobId, navigate])
+  }, [jobId, navigate, stages, stages.complete])
 
-  const activeAgent = AGENTS.find(a => a.id === currentStage) || AGENTS[0]
+  const activeAgent = AGENTS.find((agent) => agent.id === currentStage) || AGENTS[0]
 
   return (
     <div className="container mx-auto px-6 py-12 max-w-7xl">
-      {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold mb-2 gradient-text">Generating Report</h1>
         <p className="text-text-secondary">Job ID: {jobId}</p>
@@ -240,9 +238,7 @@ export default function ProcessingPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Agent Timeline */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Active Agent Highlight Card */}
           {stages[currentStage]?.status === 'active' && (
             <Card className="border-2 border-primary-500 bg-primary-500/10 shadow-lg shadow-primary-500/20">
               <div className="flex items-center gap-4">
@@ -270,7 +266,6 @@ export default function ProcessingPage() {
             </Card>
           )}
 
-          {/* Overall Progress */}
           <Card>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-semibold">Overall Progress</h3>
@@ -288,7 +283,6 @@ export default function ProcessingPage() {
             </div>
           </Card>
 
-          {/* Agent Timeline */}
           <div className="space-y-4">
             {AGENTS.map((agent, index) => {
               const stageInfo = stages[agent.id as keyof typeof stages]
@@ -314,7 +308,6 @@ export default function ProcessingPage() {
           </div>
         </div>
 
-        {/* Right Column: Metrics & Logs */}
         <div className="space-y-6">
           <MetricsPanel
             filesAnalyzed={stages.parser.files_analyzed || 0}
@@ -329,4 +322,3 @@ export default function ProcessingPage() {
     </div>
   )
 }
-
