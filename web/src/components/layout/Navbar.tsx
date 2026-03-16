@@ -1,6 +1,6 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useState, useRef, useEffect } from 'react'
-import { User, UserCircle, LogOut, FileText, ChevronDown } from 'lucide-react'
+import { UserCircle, LogOut, FileText, ChevronDown } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { logout } from '@/services/api'
 import toast from 'react-hot-toast'

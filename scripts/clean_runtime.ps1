@@ -10,7 +10,10 @@ Set-Location $root
 $targets = @(
     "__pycache__",
     "logs",
+    "inputs",
     "outputs",
+    "outputs\\final",
+    "outputs\\intermediate",
     "api\\outputs",
     "temp_extract",
     "api\\temp_extract",

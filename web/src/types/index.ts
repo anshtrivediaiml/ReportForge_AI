@@ -2,7 +2,7 @@ export type AgentStage = 'parser' | 'planner' | 'writer' | 'builder' | 'complete
 export type StageStatus = 'pending' | 'active' | 'completed' | 'error'
 
 export interface ProgressUpdate {
-  type: 'progress' | 'log' | 'error' | 'connected'
+  type: 'progress' | 'log' | 'error' | 'connected' | 'heartbeat'
   job_id: string
   stage?: AgentStage
   progress?: number

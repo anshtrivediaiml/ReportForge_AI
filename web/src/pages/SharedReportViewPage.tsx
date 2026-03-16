@@ -16,7 +16,6 @@ export default function SharedReportViewPage() {
   const [loading, setLoading] = useState(true)
   const [accessing, setAccessing] = useState(false)
   const [accessGranted, setAccessGranted] = useState(false)
-  const [jobId, setJobId] = useState<string | null>(null)
 
   useEffect(() => {
     if (shareToken) {
@@ -86,9 +85,8 @@ export default function SharedReportViewPage() {
 
     setAccessing(true)
     try {
-      const response = await accessSharedReport(shareToken, providedPassword || password)
+      await accessSharedReport(shareToken, providedPassword || password)
       setAccessGranted(true)
-      setJobId(response.job_id)
       toast.success('Access granted!')
     } catch (error: any) {
       console.error('Failed to access shared report:', error)

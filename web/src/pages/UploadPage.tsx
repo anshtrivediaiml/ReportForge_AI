@@ -4,14 +4,13 @@ import { FileText, FolderArchive, Upload, X, CheckCircle, HardDrive, AlertTriang
 import Button from '@/components/common/Button'
 import Card from '@/components/common/Card'
 import { uploadFile, startGeneration, getUserStats, type StartGenerationResponse } from '@/services/api'
-import { useAuthStore } from '@/store/authStore'
 import { formatBytes } from '@/utils/formatters'
 import { MAX_FILE_SIZE } from '@/utils/constants'
+import { rememberJobWebSocketUrl } from '@/utils/network'
 import toast from 'react-hot-toast'
 
 export default function UploadPage() {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
   const [guidelinesFile, setGuidelinesFile] = useState<File | null>(null)
   const [projectFile, setProjectFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -146,7 +145,10 @@ export default function UploadPage() {
       await fetchStorageStats()
 
       // Navigate to processing page
-      navigate(`/processing/${generationResponse.job_id}`)
+      rememberJobWebSocketUrl(generationResponse.job_id, generationResponse.ws_url)
+      navigate(`/processing/${generationResponse.job_id}`, {
+        state: { wsUrl: generationResponse.ws_url },
+      })
     } catch (error: any) {
       // Only show error if we don't have a job_id to navigate to
       const errorData = error.response?.data

@@ -1353,6 +1353,10 @@ Write professionally without JSON format. Just the paragraph text."""
             Complete content structure
         """
         logger.info("Generating all content...")
+
+        if codebase_structure.get("reduced_scope_recommended"):
+            logger.warning("Reduced-scope report recommended by deterministic facts. Using reduced-scope content generation.")
+            return self.build_reduced_scope_content(outline, codebase_structure)
         
         content = {
             "report_title": outline.get("report_title", "Technical Report"),
@@ -1427,6 +1431,99 @@ Write professionally without JSON format. Just the paragraph text."""
         logger.success(f"All content generated: {len(content['chapters'])} chapters, {total_sections} sections")
         logger.info(f"Saved to: {output_path}")
         
+        return content
+
+    def build_reduced_scope_content(
+        self,
+        outline: Dict[str, Any],
+        codebase_structure: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Build deterministic reduced-scope content when the project support tier is weak."""
+        project_name = codebase_structure.get("name", "the project")
+        project_category = codebase_structure.get("supported_project_category", "Other")
+        support_tier = codebase_structure.get("report_support_tier", "reduced")
+        support_reasons = codebase_structure.get("report_support_reasons", [])
+        technologies = codebase_structure.get("main_technologies", [])
+        capabilities = codebase_structure.get("detected_capabilities", [])
+        modules = codebase_structure.get("modules", [])
+        code_stats = codebase_structure.get("code_statistics", {})
+
+        technologies_text = ", ".join(technologies) if technologies else "no clearly identified primary technologies"
+        capabilities_text = ", ".join(capabilities) if capabilities else "no strongly verified capabilities"
+        module_names = ", ".join(module.get("name", "module") for module in modules[:5]) if modules else "no stable module grouping"
+        reasons_text = " ".join(support_reasons) if support_reasons else "The available evidence supports only a conservative report scope."
+
+        chapters = []
+        for chapter in outline.get("chapters", []):
+            chapter_sections = []
+            for section in chapter.get("sections", []):
+                section_title = section.get("title", "Section")
+                section_title_lower = section_title.lower()
+
+                if "technology" in section_title_lower or "entry point" in section_title_lower:
+                    content = (
+                        f"The available source material identifies {project_name} as a {project_category.lower()} "
+                        f"with {technologies_text}. Deterministic analysis found {code_stats.get('code_files', 0)} code files "
+                        f"and {len(codebase_structure.get('entry_points_detected', []))} detected entry points. "
+                        f"This section stays anchored to those observable facts rather than inferring a broader stack.\n\n"
+                        f"Because the project is currently in the {support_tier} support tier, the report intentionally avoids "
+                        f"claiming technologies or startup flows that are not visible in the codebase snapshot."
+                    )
+                elif "structure" in section_title_lower or "implementation" in section_title_lower or "codebase" in section_title_lower:
+                    content = (
+                        f"The observed structure of {project_name} is summarized from the extracted modules and directory facts. "
+                        f"The current analysis detected {module_names}. Where module boundaries are weak or incomplete, the report "
+                        f"states that limitation directly instead of extrapolating a richer architecture.\n\n"
+                        f"Verified capabilities currently include {capabilities_text}. These findings come from deterministic file and "
+                        f"code inspection, which keeps the report grounded even when the project is sparse or only partially documented."
+                    )
+                elif "limitation" in section_title_lower:
+                    content = (
+                        f"This report uses a reduced-scope path because {reasons_text} "
+                        f"As a result, it emphasizes confirmed structure, detected technologies, and visible code responsibilities "
+                        f"while avoiding speculative architectural claims.\n\n"
+                        f"The current implementation should therefore be read as a conservative technical summary, not as a complete "
+                        f"end-to-end system specification."
+                    )
+                elif "next step" in section_title_lower or "future" in section_title_lower:
+                    content = (
+                        f"A fuller report for {project_name} would benefit from clearer entry points, richer code coverage, and stronger "
+                        f"module boundaries in the uploaded project snapshot. Additional implementation files, configuration artifacts, or "
+                        f"readme-level context would allow the pipeline to move from reduced-scope reporting to a fuller technical narrative.\n\n"
+                        f"Until that evidence is available, the safest next step is to expand the uploaded source coverage rather than "
+                        f"guessing at missing subsystems."
+                    )
+                else:
+                    content = (
+                        f"This section documents {project_name} using only deterministic project facts. The current snapshot indicates "
+                        f"{technologies_text}, {capabilities_text}, and {code_stats.get('code_files', 0)} code files. "
+                        f"Where the evidence is incomplete, the report explicitly preserves that uncertainty.\n\n"
+                        f"The reduced-scope pipeline is designed to prefer verified observations over generated detail, so this content "
+                        f"remains intentionally conservative."
+                    )
+
+                chapter_sections.append({
+                    "number": section.get("number", ""),
+                    "title": section_title,
+                    "content": content,
+                })
+
+            chapters.append({
+                "chapter_number": chapter.get("number"),
+                "chapter_title": chapter.get("title", "Chapter"),
+                "sections": chapter_sections,
+            })
+
+        content = {
+            "report_title": outline.get("report_title", f"{project_name} Technical Report"),
+            "chapters": chapters,
+        }
+
+        output_path = self.output_dir / "chapters_content.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(content, f, indent=2, ensure_ascii=False)
+
+        logger.info("Reduced-scope content generated deterministically.")
         return content
     
     def run(

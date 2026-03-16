@@ -7,6 +7,8 @@ import { login } from '@/services/api'
 import { useAuthStore } from '@/store/authStore'
 import toast from 'react-hot-toast'
 
+const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 export default function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -179,7 +181,7 @@ export default function LoginPage() {
             variant="outline"
             className="w-full"
             onClick={() => {
-              window.location.href = `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/v1/auth/google/login`
+              window.location.href = `${apiUrl}/api/v1/auth/google/login`
             }}
             disabled={loading}
           >

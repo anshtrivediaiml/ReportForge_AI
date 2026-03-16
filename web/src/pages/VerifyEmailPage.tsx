@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle, XCircle, Loader2, Mail } from 'lucide-react'
+import { CheckCircle, XCircle, Loader2 } from 'lucide-react'
 import Button from '@/components/common/Button'
 import Card from '@/components/common/Card'
 import api from '@/lib/axios'

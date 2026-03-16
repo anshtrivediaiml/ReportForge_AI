@@ -3,7 +3,7 @@ export function formatBytes(bytes: number): string {
   const k = 1024
   const sizes = ['Bytes', 'KB', 'MB', 'GB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i]
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i]
 }
 
 export function formatDuration(seconds: number): string {
@@ -16,38 +16,32 @@ export function formatDuration(seconds: number): string {
   return `${hours}h ${mins}m`
 }
 
-export function formatDate(date: string | Date): string {
-  let d: Date
-  
+function normalizeDate(date: string | Date | number): Date {
   if (typeof date === 'string') {
-    // If the date string doesn't have timezone info (no Z or +/-), treat it as UTC
-    // Backend sends timezone-naive datetimes which are actually UTC
     let dateStr = date.trim()
-    
-    // If it doesn't end with Z or have timezone offset, append Z to treat as UTC
+
     if (!dateStr.endsWith('Z') && !dateStr.match(/[+-]\d{2}:\d{2}$/)) {
-      // Remove any milliseconds if present
       if (dateStr.includes('.') && !dateStr.includes('Z')) {
         dateStr = dateStr.split('.')[0] + 'Z'
       } else if (!dateStr.includes('Z')) {
         dateStr = dateStr + 'Z'
       }
     }
-    
-    d = new Date(dateStr)
-  } else {
-    d = date
+
+    return new Date(dateStr)
   }
-  
-  // Check if date is valid
-  if (isNaN(d.getTime())) {
+
+  return new Date(date)
+}
+
+export function formatDate(date: string | Date): string {
+  const normalizedDate = normalizeDate(date)
+
+  if (isNaN(normalizedDate.getTime())) {
     return 'Invalid Date'
   }
-  
-  // Format date in Indian Standard Time (IST - Asia/Kolkata)
-  // IST is UTC+5:30
-  return d.toLocaleString('en-IN', {
-    timeZone: 'Asia/Kolkata',
+
+  return normalizedDate.toLocaleString(undefined, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -57,3 +51,33 @@ export function formatDate(date: string | Date): string {
   })
 }
 
+export function formatTime(date: string | Date | number): string {
+  const normalizedDate = normalizeDate(date)
+
+  if (isNaN(normalizedDate.getTime())) {
+    return new Date().toLocaleTimeString(undefined, {
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  }
+
+  return normalizedDate.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+}
+
+export function formatShortDate(date: string | Date): string {
+  const normalizedDate = normalizeDate(date)
+
+  if (isNaN(normalizedDate.getTime())) {
+    return 'Invalid Date'
+  }
+
+  return normalizedDate.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  })
+}

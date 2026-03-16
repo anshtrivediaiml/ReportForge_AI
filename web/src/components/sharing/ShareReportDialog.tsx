@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { X, Copy, Check, Lock, Calendar, Globe } from 'lucide-react'
+import { X, Copy, Check, Lock, Calendar } from 'lucide-react'
 import Button from '@/components/common/Button'
 import Card from '@/components/common/Card'
 import { createShareLink, type ShareReportRequest } from '@/services/api'

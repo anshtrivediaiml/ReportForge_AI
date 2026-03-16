@@ -41,6 +41,10 @@ class PlannerAgent:
             Report outline with chapter/section hierarchy
         """
         logger.info("Creating report outline...")
+
+        if codebase_structure.get("reduced_scope_recommended"):
+            logger.warning("Reduced-scope report recommended by deterministic facts. Using reduced-scope outline.")
+            return self.build_reduced_scope_outline(codebase_structure)
         
         # Prepare enhanced project summary with all facts
         project_summary = {
@@ -653,6 +657,101 @@ EVERY PROJECT IS UNIQUE AND MUST BE DOCUMENTED INDEPENDENTLY.
         }
         
         logger.info(f"Fallback outline created with {len(chapters)} chapters based on project analysis")
+        return outline
+
+    def build_reduced_scope_outline(self, codebase_structure: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a deterministic reduced-scope outline for sparse or weakly supported projects."""
+        project_name = codebase_structure.get("name", "Software Project")
+        project_category = codebase_structure.get("supported_project_category", "Other")
+        support_reasons = codebase_structure.get("report_support_reasons", [])
+        technologies = codebase_structure.get("main_technologies", [])[:5]
+        modules = codebase_structure.get("modules", [])
+        entry_points = codebase_structure.get("entry_points_detected", [])[:5]
+
+        constraints_text = " ".join(support_reasons) if support_reasons else (
+            "The project facts support only a conservative report scope."
+        )
+        technology_summary = ", ".join(technologies) if technologies else "No primary technologies were identified."
+        module_summary = ", ".join(module.get("name", "module") for module in modules[:5]) if modules else "No stable module grouping was detected."
+        entry_point_summary = ", ".join(entry_points) if entry_points else "No confident entry points were detected."
+
+        outline = {
+            "report_title": f"{project_name} Reduced-Scope Technical Report",
+            "chapters": [
+                {
+                    "number": 1,
+                    "title": "Project Overview",
+                    "sections": [
+                        {
+                            "number": "1.1",
+                            "title": f"{project_name} Summary",
+                            "description": f"Summarize the observable purpose and detected category of the project. Category: {project_category}.",
+                            "needs_table": False,
+                            "needs_diagram": False,
+                            "writing_guideline": "State only what deterministic facts confirm. Explicitly mention uncertainty where the source material is sparse.",
+                        },
+                        {
+                            "number": "1.2",
+                            "title": "Detected Technologies and Entry Points",
+                            "description": f"Describe the detected technologies ({technology_summary}) and entry points ({entry_point_summary}).",
+                            "needs_table": bool(technologies or entry_points),
+                            "needs_diagram": False,
+                            "writing_guideline": "List only technologies and entry points that were explicitly detected.",
+                        },
+                    ],
+                },
+                {
+                    "number": 2,
+                    "title": "Observed Structure and Implementation Facts",
+                    "sections": [
+                        {
+                            "number": "2.1",
+                            "title": "Codebase Structure",
+                            "description": f"Describe the observed structure of the project using the detected modules. Module summary: {module_summary}",
+                            "needs_table": bool(modules),
+                            "needs_diagram": False,
+                            "writing_guideline": "Focus on file organization, modules, and observable responsibilities. Do not infer missing architecture.",
+                        },
+                        {
+                            "number": "2.2",
+                            "title": "Verified Capabilities and Constraints",
+                            "description": "Describe only the capabilities that deterministic analysis identified, then state the known limitations of the available evidence.",
+                            "needs_table": False,
+                            "needs_diagram": False,
+                            "writing_guideline": "Separate verified capabilities from unknown areas. Never fill gaps with assumptions.",
+                        },
+                    ],
+                },
+                {
+                    "number": 3,
+                    "title": "Limitations and Recommended Next Analysis",
+                    "sections": [
+                        {
+                            "number": "3.1",
+                            "title": "Current Analysis Limitations",
+                            "description": constraints_text,
+                            "needs_table": False,
+                            "needs_diagram": False,
+                            "writing_guideline": "Explain why the report is reduced in scope and what evidence was missing or weak.",
+                        },
+                        {
+                            "number": "3.2",
+                            "title": "Suggested Next Steps",
+                            "description": "Describe what additional source material or structure would allow a fuller technical report in future runs.",
+                            "needs_table": False,
+                            "needs_diagram": False,
+                            "writing_guideline": "Keep recommendations realistic and tied to the actual evidence gaps.",
+                        },
+                    ],
+                },
+            ],
+        }
+
+        output_path = self.output_dir / "report_outline.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(outline, f, indent=2)
+
+        logger.info("Reduced-scope outline created deterministically.")
         return outline
     
     def validate_outline(self, outline: Dict[str, Any]) -> bool:

@@ -17,7 +17,7 @@ from uuid import UUID
 from app.core.celery_app import celery_app
 from app.utils.time_utils import get_accurate_utc_time
 from app.services.websocket_service import broadcast_progress_sync
-from app.services.job_service import update_job_status
+from app.services.job_service import sync_user_storage_usage, update_job_status
 from app.schemas.job import JobUpdate
 from app.schemas.websocket import ProgressUpdate, LogMessage, ErrorMessage
 from app.models import Job, JobStatus, Stage
@@ -302,7 +302,17 @@ def generate_report_task(self, job_id: str, guidelines_path: str, project_path: 
         
         # CRITICAL: Ensure codebase has correct project name
         parsed_data['codebase']['name'] = project_name
-        
+
+        support_tier = parsed_data['codebase'].get('report_support_tier', 'full')
+        support_category = parsed_data['codebase'].get('supported_project_category', 'Other')
+        support_reasons = parsed_data['codebase'].get('report_support_reasons', [])
+        reduced_scope_mode = parsed_data['codebase'].get('reduced_scope_recommended', False)
+
+        send_log('parser', 'info', f'Pipeline support category: {support_category}')
+        send_log('parser', 'info', f'Pipeline support tier: {support_tier}')
+        for reason in support_reasons:
+            send_log('parser', 'warning', f'Reduced-scope reason: {reason}')
+
         send_update('parser', 100, 'Parser analysis complete', 
                    files_analyzed=files_count,
                    project_type=project_type)
@@ -319,15 +329,19 @@ def generate_report_task(self, job_id: str, guidelines_path: str, project_path: 
         send_update('planner', 10, 'Preparing project summary...')
         send_log('planner', 'info', 'Analyzing codebase structure for chapter planning...')
         
-        # Step 2: Create outline with LLM
-        send_update('planner', 20, 'Generating chapter outline with LLM...')
-        # Use the validated project name, not what's in codebase_structure
+        # Step 2: Create outline
         planner_project_name = parsed_data['codebase'].get('name', project_name)
-        send_log('planner', 'info', f'📋 Creating report structure for project: "{planner_project_name}" (job: {job_id})')
-        send_log('planner', 'info', f'📁 Project files: {len(parsed_data["codebase"].get("files", []))} files')
-        send_log('planner', 'info', '🚫 LLM will create outline based ONLY on this project - no mixing with other projects')
-        send_log('planner', 'info', 'Creating report structure and chapter outline (this may take 2-3 minutes)...')
-        outline = planner.create_outline(parsed_data['codebase'], parsed_data['guidelines'])
+        if reduced_scope_mode:
+            send_update('planner', 20, 'Creating reduced-scope outline from deterministic facts...')
+            send_log('planner', 'warning', f'Using reduced-scope outline mode for project: "{planner_project_name}"')
+            outline = planner.build_reduced_scope_outline(parsed_data['codebase'])
+        else:
+            send_update('planner', 20, 'Generating chapter outline with LLM...')
+            send_log('planner', 'info', f'📋 Creating report structure for project: "{planner_project_name}" (job: {job_id})')
+            send_log('planner', 'info', f'📁 Project files: {len(parsed_data["codebase"].get("files", []))} files')
+            send_log('planner', 'info', '🚫 LLM will create outline based ONLY on this project - no mixing with other projects')
+            send_log('planner', 'info', 'Creating report structure and chapter outline (this may take 2-3 minutes)...')
+            outline = planner.create_outline(parsed_data['codebase'], parsed_data['guidelines'])
         
         # Verify outline is for the correct project
         report_title = outline.get('report_title', '')
@@ -375,94 +389,103 @@ def generate_report_task(self, job_id: str, guidelines_path: str, project_path: 
         # Use job-specific output directory
         writer = WriterAgent(job_id=job_id)
         
-        # Manually write content to track progress in real-time
-        content = {
-            "report_title": outline.get("report_title", "Technical Report"),
-            "chapters": []
-        }
-        
-        chapters = outline.get("chapters", [])
-        base_progress = 5  # Start at 5%
-        progress_range = 90  # Writer goes from 5% to 95% (0-100% within writer stage)
-        
-        sections_written = 0
-        
-        # Write each chapter with progress tracking
-        for chapter_idx, chapter_info in enumerate(chapters):
-            chapter_num = chapter_info["number"]
-            chapter_title = chapter_info["title"]
+        if reduced_scope_mode:
+            send_update('writer', 10, 'Generating reduced-scope content from deterministic facts...')
+            send_log('writer', 'warning', 'Using reduced-scope content generation mode.')
+            content = writer.build_reduced_scope_content(outline, parsed_data['codebase'])
+            sections_written = sum(len(chapter.get('sections', [])) for chapter in content.get('chapters', []))
+            send_update('writer', 100, 'Reduced-scope content generation complete',
+                       sections_written=sections_written,
+                       total_sections=total_sections)
+            send_log('writer', 'success', f'Reduced-scope content generated for {sections_written} sections')
+        else:
+            # Manually write content to track progress in real-time
+            content = {
+                "report_title": outline.get("report_title", "Technical Report"),
+                "chapters": []
+            }
             
-            # Calculate progress: 5% + (chapter_index / total_chapters) * 90%
-            chapter_progress = base_progress + int((chapter_idx / len(chapters)) * progress_range)
-            send_update('writer', chapter_progress, f'Writing Chapter {chapter_num}: {chapter_title}...')
-            send_log('writer', 'info', f'Writing Chapter {chapter_num}: {chapter_title}...')
+            chapters = outline.get("chapters", [])
+            base_progress = 5  # Start at 5%
+            progress_range = 90  # Writer goes from 5% to 95% (0-100% within writer stage)
             
-            # Handle special chapters
-            if chapter_num == 1:
-                # Introduction
-                send_log('writer', 'info', f'Writing Introduction chapter (Chapter {chapter_num})...')
-                chapter_content = writer.write_introduction(outline, parsed_data['codebase'])
-                send_log('writer', 'success', f'Chapter {chapter_num} (Introduction) completed')
+            sections_written = 0
             
-            elif chapter_num == len(chapters):
-                # Conclusion (last chapter)
-                send_log('writer', 'info', f'Writing Conclusion chapter (Chapter {chapter_num})...')
-                chapter_content = writer.write_conclusion(outline, parsed_data['codebase'])
-                send_log('writer', 'success', f'Chapter {chapter_num} (Conclusion) completed')
-            
-            else:
-                # Regular chapters - write sections one by one
-                chapter_content = {
-                    "chapter_number": chapter_num,
-                    "chapter_title": chapter_title,
-                    "sections": []
-                }
+            # Write each chapter with progress tracking
+            for chapter_idx, chapter_info in enumerate(chapters):
+                chapter_num = chapter_info["number"]
+                chapter_title = chapter_info["title"]
                 
-                sections = chapter_info.get("sections", [])
-                for section_idx, section_info in enumerate(sections):
-                    section_num = section_info["number"]
-                    section_title = section_info["title"]
+                # Calculate progress: 5% + (chapter_index / total_chapters) * 90%
+                chapter_progress = base_progress + int((chapter_idx / len(chapters)) * progress_range)
+                send_update('writer', chapter_progress, f'Writing Chapter {chapter_num}: {chapter_title}...')
+                send_log('writer', 'info', f'Writing Chapter {chapter_num}: {chapter_title}...')
+                
+                # Handle special chapters
+                if chapter_num == 1:
+                    # Introduction
+                    send_log('writer', 'info', f'Writing Introduction chapter (Chapter {chapter_num})...')
+                    chapter_content = writer.write_introduction(outline, parsed_data['codebase'])
+                    send_log('writer', 'success', f'Chapter {chapter_num} (Introduction) completed')
+                
+                elif chapter_num == len(chapters):
+                    # Conclusion (last chapter)
+                    send_log('writer', 'info', f'Writing Conclusion chapter (Chapter {chapter_num})...')
+                    chapter_content = writer.write_conclusion(outline, parsed_data['codebase'])
+                    send_log('writer', 'success', f'Chapter {chapter_num} (Conclusion) completed')
+                
+                else:
+                    # Regular chapters - write sections one by one
+                    chapter_content = {
+                        "chapter_number": chapter_num,
+                        "chapter_title": chapter_title,
+                        "sections": []
+                    }
                     
-                    # Calculate progress within chapter
-                    # Progress = chapter_base + (section_index / total_sections_in_chapter) * chapter_range
-                    chapter_base = base_progress + int((chapter_idx / len(chapters)) * progress_range)
-                    chapter_range = int((1 / len(chapters)) * progress_range)
-                    section_progress = chapter_base + int((section_idx / len(sections)) * chapter_range)
-                    
-                    send_update('writer', section_progress, 
-                              f'Writing Chapter {chapter_num}, Section {section_num}: {section_title}...',
-                              sections_written=sections_written,
-                              total_sections=total_sections)
-                    send_log('writer', 'info', f'Writing Chapter {chapter_num}, Section {section_num}: {section_title}...')
-                    
-                    section = writer.write_section(
-                        section_number=section_info["number"],
-                        section_title=section_info["title"],
-                        section_description=section_info.get("description", ""),
-                        project_context=parsed_data['codebase'],
-                        chapter_context=chapter_title
-                    )
-                    
-                    chapter_content["sections"].append(section)
-                    sections_written += 1
-                    
-                    # Update progress after each section
-                    section_progress_after = chapter_base + int(((section_idx + 1) / len(sections)) * chapter_range)
-                    send_update('writer', section_progress_after,
-                              f'Completed Section {section_num}: {section_title}',
-                              sections_written=sections_written,
-                              total_sections=total_sections)
-                    send_log('writer', 'success', f'Section {section_num} completed: {section_title}')
-            
-            content["chapters"].append(chapter_content)
-            
-            # Update progress after chapter completion
-            chapter_complete_progress = base_progress + int(((chapter_idx + 1) / len(chapters)) * progress_range)
-            send_update('writer', chapter_complete_progress,
-                      f'Chapter {chapter_num} completed: {chapter_title}',
-                      sections_written=sections_written,
-                      total_sections=total_sections)
-            send_log('writer', 'success', f'Chapter {chapter_num} completed: {chapter_title}')
+                    sections = chapter_info.get("sections", [])
+                    for section_idx, section_info in enumerate(sections):
+                        section_num = section_info["number"]
+                        section_title = section_info["title"]
+                        
+                        # Progress = chapter_base + (section_index / total_sections_in_chapter) * chapter_range
+                        chapter_base = base_progress + int((chapter_idx / len(chapters)) * progress_range)
+                        chapter_range = int((1 / len(chapters)) * progress_range)
+                        section_progress = chapter_base + int((section_idx / len(sections)) * chapter_range)
+                        
+                        send_update('writer', section_progress,
+                                  f'Writing Chapter {chapter_num}, Section {section_num}: {section_title}...',
+                                  sections_written=sections_written,
+                                  total_sections=total_sections)
+                        send_log('writer', 'info', f'Writing Chapter {chapter_num}, Section {section_num}: {section_title}...')
+                        
+                        section = writer.write_section(
+                            section_number=section_info["number"],
+                            section_title=section_info["title"],
+                            section_description=section_info.get("description", ""),
+                            project_context=parsed_data['codebase'],
+                            chapter_context=chapter_title
+                        )
+                        
+                        chapter_content["sections"].append(section)
+                        sections_written += 1
+                        
+                        # Update progress after each section
+                        section_progress_after = chapter_base + int(((section_idx + 1) / len(sections)) * chapter_range)
+                        send_update('writer', section_progress_after,
+                                  f'Completed Section {section_num}: {section_title}',
+                                  sections_written=sections_written,
+                                  total_sections=total_sections)
+                        send_log('writer', 'success', f'Section {section_num} completed: {section_title}')
+                
+                content["chapters"].append(chapter_content)
+                
+                # Update progress after chapter completion
+                chapter_complete_progress = base_progress + int(((chapter_idx + 1) / len(chapters)) * progress_range)
+                send_update('writer', chapter_complete_progress,
+                          f'Chapter {chapter_num} completed: {chapter_title}',
+                          sections_written=sections_written,
+                          total_sections=total_sections)
+                send_log('writer', 'success', f'Chapter {chapter_num} completed: {chapter_title}')
         
         # Final update
         send_update('writer', 100, 'Content generation complete',
@@ -631,6 +654,10 @@ def generate_report_task(self, job_id: str, guidelines_path: str, project_path: 
                 output_filename=output_filename
             )
         )
+
+        if user_id is not None:
+            sync_user_storage_usage(db, user_id, commit=False)
+            db.commit()
         
         # Task completed successfully - return result
         result = {
@@ -691,7 +718,14 @@ def generate_report_task(self, job_id: str, guidelines_path: str, project_path: 
         # Log error and task completion
         print(f"[{job_id}] Task failed with error: {str(e)}")
         print(f"[{job_id}] Task execution ended. Worker is now idle.")
-        
+
+        if user_id is not None:
+            try:
+                sync_user_storage_usage(db, user_id, commit=False)
+                db.commit()
+            except Exception as storage_error:
+                print(f"[{job_id}] Failed to sync storage usage after task failure: {storage_error}")
+
         # Re-raise to mark task as failed (but don't retry due to max_retries=0)
         raise
     finally:

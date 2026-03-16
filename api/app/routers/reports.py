@@ -10,6 +10,7 @@ from app.models import User, Job, JobStatus
 from app.dependencies.auth import get_current_active_user
 from app.schemas.reports import UserStatsResponse
 from app.config import settings
+from app.services.job_service import sync_user_storage_usage
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -40,7 +41,7 @@ async def get_user_stats(
     
     # Calculate storage usage percentage
     storage_limit = settings.DEFAULT_STORAGE_LIMIT
-    storage_used = current_user.storage_used
+    storage_used = sync_user_storage_usage(db, user_id)
     storage_used_percent = (storage_used / storage_limit * 100) if storage_limit > 0 else 0
     
     return UserStatsResponse(
